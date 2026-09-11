@@ -1,2 +1,4 @@
 vm-assets/
 target/
+.DS_Store
+vm-data/
