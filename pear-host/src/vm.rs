@@ -4,7 +4,7 @@ use objc2::{AnyThread, rc::Retained};
 use objc2_foundation::{NSError, NSString, NSURL};
 use objc2_virtualization::{VZLinuxBootLoader, VZVirtualMachine, VZVirtualMachineConfiguration};
 
-use crate::{config::VMSettings, console};
+use crate::{config::VMSettings, console, network, storage};
 
 pub fn create(settings: &VMSettings) -> Retained<VZVirtualMachine> {
     unsafe {
@@ -29,6 +29,8 @@ pub fn create(settings: &VMSettings) -> Retained<VZVirtualMachine> {
         config.setBootLoader(Some(&bootloader));
 
         console::attach(&config);
+        network::attach(&config);
+        storage::attach(&config, settings);
 
         if let Err(error) = config.validateWithError() {
             println!("Configuration is invalid");

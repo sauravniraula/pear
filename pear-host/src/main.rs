@@ -1,5 +1,7 @@
 mod config;
 mod console;
+mod network;
+mod storage;
 mod vm;
 
 use crate::config::VMSettings;
@@ -13,6 +15,8 @@ fn main() {
     println!("RAM:        {} MiB", settings.memory);
     println!("Kernel:     {}", settings.kernel.display());
     println!("Initramfs:  {}", settings.initrd.display());
+    println!("Disk:       {}", settings.disk.display());
+    println!("Disk size:  {} GiB", settings.disk_gib);
     println!("Cmdline:    console=hvc0");
     println!();
 
