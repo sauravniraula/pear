@@ -6,6 +6,10 @@ use objc2_virtualization::{VZLinuxBootLoader, VZVirtualMachine, VZVirtualMachine
 
 use crate::{config::VMSettings, console, network, storage};
 
+pub const COMMAND_LINE: &str = "console=hvc0 \
+    root=UUID=d08ea5d6-3242-4110-843e-e6a52d335173 \
+    ro rootwait";
+
 pub fn create(settings: &VMSettings) -> Retained<VZVirtualMachine> {
     unsafe {
         if !VZVirtualMachine::isSupported() {
@@ -24,7 +28,7 @@ pub fn create(settings: &VMSettings) -> Retained<VZVirtualMachine> {
         let bootloader =
             VZLinuxBootLoader::initWithKernelURL(VZLinuxBootLoader::alloc(), &kernel_url);
         bootloader.setInitialRamdiskURL(Some(&initrd_url));
-        let command_line = NSString::from_str("console=hvc0");
+        let command_line = NSString::from_str(COMMAND_LINE);
         bootloader.setCommandLine(&command_line);
         config.setBootLoader(Some(&bootloader));
 

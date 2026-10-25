@@ -134,7 +134,9 @@ pear/
 │
 ├── vm-assets/
 │   ├── linux
-│   └── initrd.gz
+│   ├── initrd.gz
+│   ├── vmlinuz-6.12.107+deb13-arm64
+│   └── initrd.img-6.12.107+deb13-arm64
 │
 └── vm-data/
     └── root.img
@@ -317,31 +319,47 @@ Debian userspace
 
 Pear currently uses **Debian** to bootstrap its Linux VM.
 
-The VM boot assets are:
+The default VM boot assets are copied from the installed system's `/boot`:
 
 ```text
 vm-assets/
-├── linux
-└── initrd.gz
+├── vmlinuz-6.12.107+deb13-arm64
+└── initrd.img-6.12.107+deb13-arm64
 ```
 
-`linux` is the Debian Linux kernel.
+The older `vm-assets/linux` and `vm-assets/initrd.gz` files are preserved
+installer assets, but are no longer the defaults. An installer initramfs starts
+the installer even when an installed system exists on the attached disk.
 
-`initrd.gz` is the Debian installer initramfs.
-
-For now:
+The default boot path is now:
 
 ```text
-linux
+Installed Debian kernel
   │
   ▼
-initrd.gz
+Matching installed-system initramfs
   │
   ▼
-Debian installer/userspace
+Debian on root.img (/dev/vda3)
 ```
 
-Later we will boot into our own persistent minimal Linux environment instead of depending on the installer initramfs.
+The local `vm-data/root.img` contains an installed **Debian 13.7 (trixie)**
+system. Booting it through Pear has been verified through the serial console.
+From the workspace root, run:
+
+```bash
+make run-host
+# Optional resource settings:
+make run-host ARGS="--cpus 4 --memory 2048"
+```
+
+`run-host` builds, signs with `pear-host/host.entitlements`, and launches the VM.
+Use `make sign-host` to build and sign without launching. Re-sign after rebuilding
+to retain the virtualization entitlement.
+
+These boot assets and the disk image are local, gitignored files; a fresh
+checkout must provision them before launching. See [Installed Debian and boot
+assets](#installed-debian-and-boot-assets) for the inspected disk layout.
 
 ---
 
@@ -364,8 +382,10 @@ We can currently launch the host with values such as:
 ```bash
 ./target/debug/pear-host \
     --cpus 4 \
-    --memory-mib 2048
+    --memory 2048
 ```
+
+`--memory` is expressed in MiB. The current binary does not accept `--memory-mib`.
 
 Conceptually this will later become:
 
@@ -399,7 +419,7 @@ The exact limits depend on the Mac.
 The Linux kernel currently boots with:
 
 ```text
-console=hvc0
+console=hvc0 root=UUID=d08ea5d6-3242-4110-843e-e6a52d335173 ro rootwait
 ```
 
 Pear connects that virtual console to the macOS terminal.
@@ -463,17 +483,70 @@ VirtIO block driver
 The important distinction is:
 
 ```text
-vm-assets/linux
-    Linux kernel
+vm-assets/vmlinuz-6.12.107+deb13-arm64
+    installed Debian kernel
 
-vm-assets/initrd.gz
-    temporary early userspace
+vm-assets/initrd.img-6.12.107+deb13-arm64
+    matching early userspace with storage drivers
 
 vm-data/root.img
     persistent Linux filesystem
 ```
 
-Eventually `root.img` will contain the Linux system that runs `pear-runtime`.
+The local `root.img` contains Debian and boots through Pear. Deploying
+`pear-runtime` is still pending. Do not recreate or format this image to resolve
+the missing-driver issue in the old installer environment.
+
+## Installed Debian and boot assets
+
+Read-only inspection of the local image confirmed a GPT partition table, Debian
+13.7 release files, and an installed-package database. These findings describe
+the current local image, not an image provisioned automatically by Pear.
+
+| Partition | Contents confirmed by inspection |
+| --- | --- |
+| `/dev/vda1` | 16 MiB partition; purpose not established |
+| `/dev/vda2` | ext4 filesystem for `/boot` |
+| `/dev/vda3` | ext4 root filesystem (`/`) |
+| `/dev/vda4` | Swap, recorded in the installed `/etc/fstab` |
+
+The root filesystem UUID is `d08ea5d6-3242-4110-843e-e6a52d335173`.
+The disk has a capacity of **20 GiB** (21,474,836,480 bytes), or
+**41,943,040 sectors** of 512 bytes each. The host's printed `Disk size` setting
+is a creation default, not a measurement of an existing image's capacity.
+
+The installed `/boot` contains a matching pair:
+
+```text
+/boot/vmlinuz-6.12.107+deb13-arm64
+/boot/initrd.img-6.12.107+deb13-arm64
+```
+
+The kernel has a raw ARM64 Image header. Its configuration enables VirtIO PCI
+and the VirtIO console as built-ins, with VirtIO block and ext4 as modules. The
+matching initramfs was inspected and contains both `virtio_blk.ko.xz` and
+`ext4.ko.xz`, along with module dependency metadata. It contains an initial cpio
+archive followed by a zstd-compressed archive; it is not a gzip-only image.
+
+### Verified installed-system boot
+
+The installed kernel and matching initramfs were copied read-only from the
+`/boot` partition into the versioned host-side paths above. SHA256 checks
+confirmed that both copies match their source files; the installer assets were
+left untouched.
+
+`pear-host/src/config.rs` selects those files by default.
+`pear-host/src/vm.rs` supplies the root UUID via `COMMAND_LINE`, and the host
+prints that same command line. Boot verification showed the correct disk
+capacity, mounting of `/dev/vda3`, and normal Debian startup through the serial
+login service. No login credentials were used during verification.
+
+The root UUID is specific to this local disk image and is currently hardcoded;
+there is no kernel-command-line CLI option. For another image, update the root
+argument and select that system's matching kernel/initramfs. Keep their versions
+matched; do not combine the installed 6.12.107 kernel with the older installer
+initramfs. After kernel upgrades inside Debian, refresh the host-side copies
+and update the selected paths together.
 
 ---
 
@@ -509,9 +582,9 @@ Example:
 ```bash
 pear-host \
     --cpus 4 \
-    --memory-mib 2048 \
-    --kernel vm-assets/linux \
-    --initrd vm-assets/initrd.gz
+    --memory 2048 \
+    --kernel vm-assets/vmlinuz-6.12.107+deb13-arm64 \
+    --initrd vm-assets/initrd.img-6.12.107+deb13-arm64
 ```
 
 ---
@@ -696,7 +769,7 @@ Added:
 
 ```text
 --cpus
---memory-mib
+--memory
 ```
 
 Example:
@@ -704,7 +777,7 @@ Example:
 ```bash
 pear-host \
     --cpus 4 \
-    --memory-mib 2048
+    --memory 2048
 ```
 
 Status:
@@ -776,9 +849,9 @@ COMPLETE
 
 # Phase 3 — Persistent Storage
 
-## 🚧 Step 3 — VirtIO Disk
+## ✅ Step 3 — VirtIO Disk
 
-Added/planned:
+Host attachment and guest detection verified:
 
 ```text
 vm-data/root.img
@@ -790,12 +863,44 @@ VirtIO block device
 /dev/vda
 ```
 
-The next verification is making sure Debian sees the disk as a block device.
+The original installer boot was checked through the VirtIO console:
+
+* `/proc/partitions` and `/sys/block` were empty; `/dev/vda` was absent.
+* A VirtIO block device (`0x0002`) was present on the guest bus, with no bound
+  driver.
+* `virtio_blk` was unavailable in the running `6.12.94+deb13-arm64` installer
+  environment. This is a guest-driver issue, not evidence that the image is blank.
+* Read-only host inspection confirmed an installed Debian system and a newer,
+  matching kernel/initramfs pair with storage support. See
+  [Installed Debian and boot assets](#installed-debian-and-boot-assets).
+
+Switching to the installed system's matching kernel/initramfs resolved the
+driver issue. Actual guest boot output included:
+
+```text
+virtio_blk virtio2: [vda] 41943040 512-byte logical blocks (21.5 GB/20.0 GiB)
+vda: vda1 vda2 vda3 vda4
+EXT4-fs (vda3): mounted filesystem d08ea5d6-3242-4110-843e-e6a52d335173 ro with ordered data mode. Quota mode: none.
+Welcome to Debian GNU/Linux 13 (trixie)!
+```
+
+Debian reached its normal serial login service rather than the installer menu.
+To repeat the checks after logging in:
+
+```sh
+cat /proc/partitions
+ls -l /dev/vda
+cat /sys/block/vda/size
+findmnt /
+```
+
+The detection checkpoint passed: Debian recognized `vda` with the expected
+`41943040` sectors and mounted the installed root filesystem on `/dev/vda3`.
 
 Status:
 
 ```text
-IN PROGRESS
+COMPLETE
 ```
 
 ---
@@ -835,7 +940,8 @@ and normal network connectivity from the VM.
 
 ## Step 5 — Permanent Minimal Linux System
 
-Replace the temporary installer environment with a persistent Linux filesystem living on:
+The installed Debian system now boots from the persistent disk. Further work is
+to prepare and minimize it as Pear's runtime environment:
 
 ```text
 vm-data/root.img
@@ -1243,7 +1349,7 @@ Current high-level roadmap:
 ```text
  1. Rust workspace                    ✅
  2. macOS virtualization              ✅
- 3. Persistent storage                🚧
+ 3. Persistent storage                ✅
  4. VM networking                     ⬜
  5. Permanent Linux VM                ⬜
  6. pear-runtime Linux binary         ⬜
@@ -1264,8 +1370,8 @@ Current count:
 
 ```text
 Major phases:         17
-Completed:             2
-In progress:           1
+Completed:             3
+In progress:           0
 Remaining afterward:  14
 ```
 
@@ -1362,10 +1468,10 @@ Virtualization.framework
   ├── Debian initramfs ✅
   ├── VirtIO console ✅
   ├── Linux boot ✅
-  └── persistent VirtIO disk 🚧
+  └── persistent VirtIO disk ✅
 ```
 
-The immediate next checkpoint is:
+The storage checkpoint is verified:
 
 ```text
 vm-data/root.img
@@ -1380,7 +1486,7 @@ Debian
 /dev/vda
 ```
 
-Once that is verified, the next major step is:
+The next major step is networking verification:
 
 ```text
 Step 4
@@ -1400,7 +1506,8 @@ macOS NAT
 Internet
 ```
 
-From there we can build the permanent Linux environment that will run `pear-runtime`.
+From there we can validate and minimize the installed Linux environment that
+will run `pear-runtime`.
 
 ---
 

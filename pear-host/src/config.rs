@@ -4,15 +4,14 @@ use clap::Parser;
 use objc2_virtualization::VZVirtualMachineConfiguration;
 
 #[derive(Parser)]
-// #[command(name = "pear-host")]
 struct Args {
     #[arg(long)]
     cpus: Option<usize>,
     #[arg(long)]
     memory: Option<u64>,
-    #[arg(long, default_value = "vm-assets/linux")]
+    #[arg(long, default_value = "vm-assets/vmlinuz-6.12.107+deb13-arm64")]
     kernel: PathBuf,
-    #[arg(long, default_value = "vm-assets/initrd.gz")]
+    #[arg(long, default_value = "vm-assets/initrd.img-6.12.107+deb13-arm64")]
     initrd: PathBuf,
     #[arg(long, default_value = "vm-data/root.img")]
     disk: PathBuf,
@@ -96,5 +95,25 @@ impl VMSettings {
 
     pub fn memory_bytes(&self) -> u64 {
         self.memory * MIB
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_boot_assets_target_installed_debian() {
+        let args = Args::try_parse_from(["pear-host"]).unwrap();
+
+        assert_eq!(
+            args.kernel,
+            PathBuf::from("vm-assets/vmlinuz-6.12.107+deb13-arm64")
+        );
+        assert_eq!(
+            args.initrd,
+            PathBuf::from("vm-assets/initrd.img-6.12.107+deb13-arm64")
+        );
+        assert_eq!(args.disk, PathBuf::from("vm-data/root.img"));
     }
 }
