@@ -17,7 +17,7 @@ fn main() {
     println!("Initramfs:  {}", settings.initrd.display());
     println!("Disk:       {}", settings.disk.display());
     println!("Disk size:  {} GiB", settings.disk_gib);
-    println!("Cmdline:    console=hvc0");
+    println!("Cmdline:    {}", vm::COMMAND_LINE);
     println!();
 
     let vm = vm::create(&settings);
