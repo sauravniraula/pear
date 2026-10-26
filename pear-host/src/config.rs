@@ -9,14 +9,16 @@ struct Args {
     cpus: Option<usize>,
     #[arg(long)]
     memory: Option<u64>,
-    #[arg(long, default_value = "vm-assets/vmlinuz-6.12.107+deb13-arm64")]
+    #[arg(long, default_value = "vm-assets/debian/linux")]
     kernel: PathBuf,
-    #[arg(long, default_value = "vm-assets/initrd.img-6.12.107+deb13-arm64")]
+    #[arg(long, default_value = "vm-assets/debian/initrd.img")]
     initrd: PathBuf,
     #[arg(long, default_value = "vm-data/root.img")]
     disk: PathBuf,
+    #[arg(long, default_value = crate::vm::COMMAND_LINE)]
+    cmdline: String,
 
-    #[arg(long, default_value_t = 8)]
+    #[arg(long, default_value_t = 20)]
     disk_gib: u64,
 }
 
@@ -30,6 +32,7 @@ pub struct VMSettings {
     pub initrd: PathBuf,
     pub disk: PathBuf,
     pub disk_gib: u64,
+    pub cmdline: String,
 }
 
 impl VMSettings {
@@ -89,6 +92,7 @@ impl VMSettings {
                 initrd: args.initrd,
                 disk: args.disk,
                 disk_gib: args.disk_gib,
+                cmdline: args.cmdline,
             }
         }
     }
@@ -101,19 +105,29 @@ impl VMSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
 
     #[test]
-    fn default_boot_assets_target_installed_debian() {
-        let args = Args::try_parse_from(["pear-host"]).unwrap();
+    fn installer_boot_can_override_the_kernel_command_line() {
+        let matches = Args::command()
+            .try_get_matches_from(["pear-host", "--cmdline", "console=hvc0"])
+            .unwrap();
 
         assert_eq!(
-            args.kernel,
-            PathBuf::from("vm-assets/vmlinuz-6.12.107+deb13-arm64")
+            matches.get_one::<String>("cmdline").unwrap(),
+            "console=hvc0"
         );
-        assert_eq!(
-            args.initrd,
-            PathBuf::from("vm-assets/initrd.img-6.12.107+deb13-arm64")
-        );
+    }
+
+    #[test]
+    fn default_boot_assets_target_installed_debian_on_root_img() {
+        let args = Args::try_parse_from(["pear-host"]).unwrap();
+
+        assert_eq!(args.kernel, PathBuf::from("vm-assets/debian/linux"));
+        assert_eq!(args.initrd, PathBuf::from("vm-assets/debian/initrd.img"));
         assert_eq!(args.disk, PathBuf::from("vm-data/root.img"));
+        assert_eq!(args.disk_gib, 20);
+        assert!(args.cmdline.starts_with("console=hvc0 root=UUID="));
+        assert!(args.cmdline.ends_with(" ro rootwait"));
     }
 }

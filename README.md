@@ -133,10 +133,11 @@ pear/
 │       └── main.rs
 │
 ├── vm-assets/
+│   ├── debian/
+│   │   ├── linux
+│   │   └── initrd.img
 │   ├── linux
-│   ├── initrd.gz
-│   ├── vmlinuz-6.12.107+deb13-arm64
-│   └── initrd.img-6.12.107+deb13-arm64
+│   └── initrd.gz
 │
 └── vm-data/
     └── root.img
@@ -319,17 +320,18 @@ Debian userspace
 
 Pear currently uses **Debian** to bootstrap its Linux VM.
 
-The default VM boot assets are copied from the installed system's `/boot`:
+The default boot assets are copied from the installed Debian system's `/boot`:
 
 ```text
 vm-assets/
-├── vmlinuz-6.12.107+deb13-arm64
-└── initrd.img-6.12.107+deb13-arm64
+└── debian/
+    ├── linux
+    └── initrd.img
 ```
 
-The older `vm-assets/linux` and `vm-assets/initrd.gz` files are preserved
-installer assets, but are no longer the defaults. An installer initramfs starts
-the installer even when an installed system exists on the attached disk.
+These are the matching kernel and initramfs for `6.12.107+deb13-arm64`.
+The installer assets are preserved outside `vm-assets/debian/`, but are not
+selected by default.
 
 The default boot path is now:
 
@@ -340,12 +342,12 @@ Installed Debian kernel
 Matching installed-system initramfs
   │
   ▼
-Debian on root.img (/dev/vda3)
+Debian on root.img (/dev/vda1)
 ```
 
-The local `vm-data/root.img` contains an installed **Debian 13.7 (trixie)**
-system. Booting it through Pear has been verified through the serial console.
-From the workspace root, run:
+**Debian 13.7 (trixie) is installed on the 20 GiB `vm-data/root.img`.** The
+default configuration boots that installed system, not the installer. From the
+workspace root:
 
 ```bash
 make run-host
@@ -358,8 +360,23 @@ Use `make sign-host` to build and sign without launching. Re-sign after rebuildi
 to retain the virtualization entitlement.
 
 These boot assets and the disk image are local, gitignored files; a fresh
-checkout must provision them before launching. See [Installed Debian and boot
-assets](#installed-debian-and-boot-assets) for the inspected disk layout.
+checkout must provision the assets before launching. Pear creates a missing
+disk as a sparse file; it does not install Debian automatically.
+
+## Installed accounts
+
+The completed installation has two interactive accounts:
+
+* `root` — administrative account with password login enabled.
+* `debian` — regular user (UID 1000), also a member of the `sudo` group.
+
+Both accounts were configured using the password supplied through a masked local
+dialog. Their installed password settings were verified without printing
+credential material. Passwords are not documented or committed. The temporary
+private installer and host-side credential material were removed afterward.
+
+`make run-host` builds, signs, and boots this installation. There is no separate
+`install-debian` target. Repeated launches do not reinstall or format the disk.
 
 ---
 
@@ -419,7 +436,7 @@ The exact limits depend on the Mac.
 The Linux kernel currently boots with:
 
 ```text
-console=hvc0 root=UUID=d08ea5d6-3242-4110-843e-e6a52d335173 ro rootwait
+console=hvc0 root=UUID=457dde2c-b009-477e-948e-f7278b83a74a ro rootwait
 ```
 
 Pear connects that virtual console to the macOS terminal.
@@ -483,70 +500,36 @@ VirtIO block driver
 The important distinction is:
 
 ```text
-vm-assets/vmlinuz-6.12.107+deb13-arm64
+vm-assets/debian/linux
     installed Debian kernel
 
-vm-assets/initrd.img-6.12.107+deb13-arm64
-    matching early userspace with storage drivers
+vm-assets/debian/initrd.img
+    matching initramfs with storage and filesystem drivers
 
 vm-data/root.img
-    persistent Linux filesystem
+    installed Debian root filesystem
 ```
 
-The local `root.img` contains Debian and boots through Pear. Deploying
-`pear-runtime` is still pending. Do not recreate or format this image to resolve
-the missing-driver issue in the old installer environment.
-
-## Installed Debian and boot assets
-
-Read-only inspection of the local image confirmed a GPT partition table, Debian
-13.7 release files, and an installed-package database. These findings describe
-the current local image, not an image provisioned automatically by Pear.
-
-| Partition | Contents confirmed by inspection |
-| --- | --- |
-| `/dev/vda1` | 16 MiB partition; purpose not established |
-| `/dev/vda2` | ext4 filesystem for `/boot` |
-| `/dev/vda3` | ext4 root filesystem (`/`) |
-| `/dev/vda4` | Swap, recorded in the installed `/etc/fstab` |
-
-The root filesystem UUID is `d08ea5d6-3242-4110-843e-e6a52d335173`.
 The disk has a capacity of **20 GiB** (21,474,836,480 bytes), or
 **41,943,040 sectors** of 512 bytes each. The host's printed `Disk size` setting
 is a creation default, not a measurement of an existing image's capacity.
 
-The installed `/boot` contains a matching pair:
+## Installed-system boot configuration
 
-```text
-/boot/vmlinuz-6.12.107+deb13-arm64
-/boot/initrd.img-6.12.107+deb13-arm64
-```
+The local disk uses GPT with a single ext4 root partition, `/dev/vda1`. Its
+filesystem UUID is `457dde2c-b009-477e-948e-f7278b83a74a`; the host supplies it
+as the default `root=` argument. The kernel and matching initramfs were copied
+read-only from this installation's `/boot` and hash-verified against their
+sources. No GRUB/EFI bootloader is required: Pear uses direct Linux kernel boot
+through `VZLinuxBootLoader`.
 
-The kernel has a raw ARM64 Image header. Its configuration enables VirtIO PCI
-and the VirtIO console as built-ins, with VirtIO block and ext4 as modules. The
-matching initramfs was inspected and contains both `virtio_blk.ko.xz` and
-`ext4.ko.xz`, along with module dependency metadata. It contains an initial cpio
-archive followed by a zstd-compressed archive; it is not a gzip-only image.
+The default paths are `vm-assets/debian/linux`, `vm-assets/debian/initrd.img`,
+and `vm-data/root.img`. Overrides are available through `--kernel`, `--initrd`,
+`--disk`, and `--cmdline`. Another disk requires its own root argument and
+matching boot assets; creating a blank image is not an OS installation.
 
-### Verified installed-system boot
-
-The installed kernel and matching initramfs were copied read-only from the
-`/boot` partition into the versioned host-side paths above. SHA256 checks
-confirmed that both copies match their source files; the installer assets were
-left untouched.
-
-`pear-host/src/config.rs` selects those files by default.
-`pear-host/src/vm.rs` supplies the root UUID via `COMMAND_LINE`, and the host
-prints that same command line. Boot verification showed the correct disk
-capacity, mounting of `/dev/vda3`, and normal Debian startup through the serial
-login service. No login credentials were used during verification.
-
-The root UUID is specific to this local disk image and is currently hardcoded;
-there is no kernel-command-line CLI option. For another image, update the root
-argument and select that system's matching kernel/initramfs. Keep their versions
-matched; do not combine the installed 6.12.107 kernel with the older installer
-initramfs. After kernel upgrades inside Debian, refresh the host-side copies
-and update the selected paths together.
+After guest kernel upgrades, refresh the host-side kernel and initramfs copies
+together. Pear prints and passes the selected command line unchanged.
 
 ---
 
@@ -583,8 +566,8 @@ Example:
 pear-host \
     --cpus 4 \
     --memory 2048 \
-    --kernel vm-assets/vmlinuz-6.12.107+deb13-arm64 \
-    --initrd vm-assets/initrd.img-6.12.107+deb13-arm64
+    --kernel vm-assets/debian/linux \
+    --initrd vm-assets/debian/initrd.img
 ```
 
 ---
@@ -608,8 +591,8 @@ Linux hvc0
 Responsible for:
 
 ```text
-creating root.img
-opening root.img
+creating the configured disk image if absent
+opening the configured disk image
 attaching the disk
 creating a VirtIO block device
 ```
@@ -870,22 +853,14 @@ The original installer boot was checked through the VirtIO console:
   driver.
 * `virtio_blk` was unavailable in the running `6.12.94+deb13-arm64` installer
   environment. This is a guest-driver issue, not evidence that the image is blank.
-* Read-only host inspection confirmed an installed Debian system and a newer,
-  matching kernel/initramfs pair with storage support. See
-  [Installed Debian and boot assets](#installed-debian-and-boot-assets).
-
-Switching to the installed system's matching kernel/initramfs resolved the
-driver issue. Actual guest boot output included:
+Both the storage-enabled installer and the installed system's matching
+initramfs include the block driver. Guest boot output confirmed:
 
 ```text
 virtio_blk virtio2: [vda] 41943040 512-byte logical blocks (21.5 GB/20.0 GiB)
-vda: vda1 vda2 vda3 vda4
-EXT4-fs (vda3): mounted filesystem d08ea5d6-3242-4110-843e-e6a52d335173 ro with ordered data mode. Quota mode: none.
-Welcome to Debian GNU/Linux 13 (trixie)!
 ```
 
-Debian reached its normal serial login service rather than the installer menu.
-To repeat the checks after logging in:
+To repeat the checks after logging into Debian:
 
 ```sh
 cat /proc/partitions
@@ -895,7 +870,8 @@ findmnt /
 ```
 
 The detection checkpoint passed: Debian recognized `vda` with the expected
-`41943040` sectors and mounted the installed root filesystem on `/dev/vda3`.
+`41943040` sectors. Debian is installed on `/dev/vda1`, and its root filesystem
+is selected by UUID rather than the installer's temporary environment.
 
 Status:
 
@@ -940,8 +916,8 @@ and normal network connectivity from the VM.
 
 ## Step 5 — Permanent Minimal Linux System
 
-The installed Debian system now boots from the persistent disk. Further work is
-to prepare and minimize it as Pear's runtime environment:
+The base Debian system is installed and its boot path is configured. Further
+work is to prepare and minimize it as Pear's runtime environment:
 
 ```text
 vm-data/root.img
@@ -1506,8 +1482,8 @@ macOS NAT
 Internet
 ```
 
-From there we can validate and minimize the installed Linux environment that
-will run `pear-runtime`.
+The installed Debian boot path is configured. Preparing the Linux environment
+to run `pear-runtime` remains separate work.
 
 ---
 
